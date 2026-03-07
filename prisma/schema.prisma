@@ -1,0 +1,621 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// 🏢 1. ระบบจัดการผู้เช่า (Tenant) และแพ็กเกจ SaaS
+// ============================================
+
+model Tenant {
+  id            String         @id @default(uuid())
+  name          String         // ชื่อบริษัท หรือชื่อคลินิกหลัก
+  taxId         String?        // เลขประจำตัวผู้เสียภาษีใหญ่
+  email         String         @unique
+  phone         String?
+  description   String?        // คำอธิบายคลินิก
+  
+  // Approval Workflow
+  status        String         @default("PENDING") // PENDING, APPROVED, REJECTED
+  paymentSlipUrl String?       // URL รูปหลักฐานการโอนเงิน
+  approvedAt    DateTime?
+  approvedById  String?        // ใครเป็นคนอนุมัติ (SAAS_ADMIN)
+  approvedBy    User?          @relation("ApprovedClinics", fields: [approvedById], references: [id])
+  
+  // Branding
+  brandColor    String?        // สีหลักของคลินิก เช่น #FF6B35
+  logoUrl       String?        // Logo คลินิก (base64 data URI)
+  
+  // Package Subscription
+  activePlan    String         @default("FREE") // เช่น FREE, BASIC, PRO, ENTERPRISE
+  planExpiresAt DateTime?
+  isActive      Boolean        @default(true)
+  
+  // Relations
+  branches      ClinicBranch[]
+  subscriptions Subscription[]
+  users         User[]         // คลินิกนี้มีพนักงานกี่คนรวมทุกสาขา
+  customers     Customer[]     // ลูกค้าเป็นของกิจการ (ไปได้ทุกสาขา)
+  pets          Pet[]          // สัตว์เลี้ยงเป็นของกิจการ
+  
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Subscription {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  
+  planName      String   // ชื่อแพ็กเกจที่ซื้อ
+  amountPaid    Float    // ยอดเงินที่จ่ายให้ระบบ SaaS ของเรา
+  billingCycle  String   // MONTHLY, YEARLY
+  startDate     DateTime
+  endDate       DateTime
+  paymentStatus String   // PAID, FAILED, PENDING
+  
+  createdAt     DateTime @default(now())
+}
+
+// ============================================
+// 🏥 2. สาขาของคลินิก (Clinic Branches)
+// ============================================
+
+model ClinicBranch {
+  id              String          @id @default(uuid())
+  tenantId        String
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+  
+  name            String          // ชื่อสาขา เช่น สาขาลาดพร้าว, สาขาสุขุมวิท
+  address         String?
+  phone           String?
+  isActive        Boolean         @default(true)
+  
+  // Relations
+  appointments    Appointment[]
+  medicalRecords  MedicalRecord[]
+  invoices        Invoice[]
+  inventory       Inventory[]
+  vaccines        VaccineRecord[]
+  users           BranchStaff[]
+  customers       Customer[]
+  pets            Pet[]
+  visits          Visit[]
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  @@index([tenantId])
+}
+
+// ============================================
+// 🔐 3. ระบบจัดการ Role และ Menu (Dynamic Permissions)
+// ============================================
+
+model Role {
+  id          String     @id @default(uuid())
+  name        String     @unique   // เช่น "SAAS_ADMIN", "OWNER", "VET"
+  description String?
+  isActive    Boolean    @default(true)
+  menus       RoleMenu[]
+  users       User[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Menu {
+  id          String     @id @default(uuid())
+  name        String     // ชื่อเมนู เช่น "แดชบอร์ด", "ทะเบียนเลขสารบัญ"
+  path        String?    // URL path เช่น "/dashboard"
+  icon        String?    // ชื่อ icon เช่น "LayoutDashboard"
+  parentId    String?
+  parent      Menu?      @relation("MenuTree", fields: [parentId], references: [id])
+  children    Menu[]     @relation("MenuTree")
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+  roles       RoleMenu[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model RoleMenu {
+  roleId String
+  menuId String
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  menu   Menu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  @@id([roleId, menuId])
+}
+
+// ============================================
+// 👩‍⚕️ 4. ผู้ใช้งานระบบ (หมอ, พยาบาล, แอดมิน)
+// ============================================
+
+model User {
+  id              String          @id @default(uuid())
+  tenantId        String?         // เป็น Null ได้ถ้าเป็นคนของฝั่ง SaaS เราเอง (SAAS_ADMIN)
+  tenant          Tenant?         @relation(fields: [tenantId], references: [id])
+  
+  email           String          @unique
+  password        String          // hashed
+  firstName       String
+  lastName        String
+  
+  roleId          String?         // อ้างอิงไปยัง Role table
+  roleRef         Role?           @relation(fields: [roleId], references: [id])
+  
+  // หมอคนนี้รักษาประวัติอะไรไปบ้าง / มีนัดหมายอะไรบ้าง
+  medicalRecords  MedicalRecord[]
+  appointments    Appointment[]
+  
+  // เช็คว่าพนักงานคนนี้อยู่สาขาไหนบ้าง (รองรับหมอวิ่งรอกหลายสาขา)
+  branches        BranchStaff[]
+  
+  // คลินิกที่ผู้ใช้นี้ (SAAS_ADMIN) เป็นคนอนุมัติ
+  approvedClinics Tenant[]      @relation("ApprovedClinics")
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  @@index([tenantId])
+  @@index([roleId])
+}
+
+// Mapping ระหว่าง พนักงาน และ สาขา (Many-to-Many)
+model BranchStaff {
+  userId    String
+  branchId  String
+  
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch    ClinicBranch @relation(fields: [branchId], references: [id])
+  
+  @@id([userId, branchId])
+}
+
+// ============================================
+// 🐾 4. เจ้าของสัตว์เลี้ยงและสัตว์เลี้ยง (ลูกค้า)
+// ============================================
+
+model Customer {
+  id        String    @id @default(uuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  
+  firstName String
+  lastName  String
+  phone     String?
+  email     String?
+  lineId    String?          // LINE ID สำหรับติดต่อ
+  address   String?          @db.Text
+  
+  branchId  String?          // สาขาที่ลงทะเบียนครั้งแรก
+  branch    ClinicBranch?    @relation(fields: [branchId], references: [id])
+
+  pets      Pet[]
+  invoices  Invoice[]
+  visits    Visit[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([branchId])
+}
+
+model Pet {
+  id             String          @id @default(uuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  
+  customerId     String
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  name           String
+  species        String          // เช่น สุนัข, แมว, นก
+  breed          String?         // สายพันธุ์
+  sex            String?         // M = Male, F = Female, N = Neutered, S = Spayed
+  birthDate      DateTime?
+  color          String?
+  weight         Float?          // น้ำหนักล่าสุด
+  tagId          String?         // หมายเลข Tag / Microchip
+  
+  branchId       String?         // สาขาที่ลงทะเบียนครั้งแรก
+  branch         ClinicBranch?   @relation(fields: [branchId], references: [id])
+
+  medicalRecords MedicalRecord[]
+  appointments   Appointment[]
+  vaccines       VaccineRecord[]
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  
+  @@index([tenantId])
+  @@index([branchId])
+}
+
+// ============================================
+// 📅 5. การนัดหมาย (Appointment)
+// ============================================
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id          String            @id @default(uuid())
+  branchId    String
+  branch      ClinicBranch      @relation(fields: [branchId], references: [id])
+  
+  petId       String
+  pet         Pet               @relation(fields: [petId], references: [id])
+  
+  vetId       String?           // นัดกับหมอคนไหน (อาจจะไม่ระบุหมอก็ได้)
+  vet         User?             @relation(fields: [vetId], references: [id])
+  
+  date        DateTime          // วัน-เวลาที่นัด
+  reason      String            // สาเหตุ เช่น ฉีดวัคซีน, อาบน้ำ, ป่วย
+  status      AppointmentStatus @default(SCHEDULED)
+  
+  visitId     String?
+  visit       Visit?            @relation(fields: [visitId], references: [id])
+  
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  
+  @@index([branchId])
+  @@index([vetId])
+  @@index([petId])
+  @@index([visitId])
+}
+
+// ============================================
+// 🩺 6. ประวัติการรักษา (Medical Record / OPD)
+// ============================================
+
+model MedicalRecord {
+  id            String             @id @default(uuid())
+  branchId      String
+  branch        ClinicBranch       @relation(fields: [branchId], references: [id])
+  
+  visitId       String?            // A medical record can belong to a multi-pet visit
+  visit         Visit?             @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  
+  petId         String
+  pet           Pet                @relation(fields: [petId], references: [id], onDelete: Cascade)
+  
+  vetId         String             // คนตรวจ
+  vet           User               @relation(fields: [vetId], references: [id])
+  
+  visitDate     DateTime           @default(now())
+  weightAtVisit Float?
+  temperature   Float?
+  
+  symptoms      String             @db.Text // อาการที่มา
+  diagnosis     String             @db.Text // การวินิจฉัยโรค
+  treatment     String             @db.Text // การรักษาที่ให้
+  prescription  String?            @db.Text // การสั่งยา
+  notes         String?            @db.Text // หมายเหตุเพิ่มเติม
+  
+  images        MedicalImage[]
+  medications   MedicalTreatment[]
+  
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  
+  @@index([branchId])
+  @@index([visitId])
+  @@index([petId])
+  @@index([vetId])
+}
+
+// ============================================
+// 📍 6.5 การเข้ารับบริการ (Visit)
+// ============================================
+
+model Visit {
+  id            String          @id @default(uuid())
+  branchId      String
+  branch        ClinicBranch    @relation(fields: [branchId], references: [id])
+  
+  customerId    String
+  customer      Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  visitDate     DateTime        @default(now())
+  
+  medicalRecords MedicalRecord[] // Allows multiple pets per visit
+  invoice       Invoice?        // A visit has one consolidated invoice
+  appointments  Appointment[]   // Linked appointments
+  
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([branchId])
+  @@index([customerId])
+}
+
+// ============================================
+// 🧾 7. การออกบิล / ใบเสร็จ (Billing)
+// ============================================
+
+enum InvoiceStatus {
+  UNPAID
+  PAID
+  VOID
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  branchId      String
+  branch        ClinicBranch  @relation(fields: [branchId], references: [id])
+  
+  customerId    String
+  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  visitId       String?       @unique // Unique because 1 Visit = 1 Invoice
+  visit         Visit?        @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  
+  totalAmount   Float         // ยอดรวม
+  discount      Float         @default(0) // ส่วนลด
+  netAmount     Float         // ยอดสุทธิ
+  status        InvoiceStatus @default(UNPAID)
+  
+  paymentMethod String?       // CASH, TRANSFER, CREDIT_CARD
+  paymentDate   DateTime?
+  
+  items         InvoiceItem[] // General items not tied to a specific pet's medical record
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([branchId])
+  @@index([customerId])
+}
+
+model InvoiceItem {
+  id            String        @id @default(uuid())
+  invoiceId     String
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  productId     String?       // Can be null if it's a custom fee
+  product       Inventory?    @relation(fields: [productId], references: [id])
+  
+  name          String        // e.g., "Dog Shampoo", "Consultation Fee"
+  quantity      Int           @default(1)
+  unitPrice     Float
+  totalPrice    Float         // quantity * unitPrice
+  
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([invoiceId])
+  @@index([productId])
+}
+
+// ============================================
+// 📦 8. ระบบคลังยาและสินค้า (Inventory)
+// ============================================
+
+enum ProductType {
+  MEDICINE    // ยา
+  VACCINE     // วัคซีน
+  SUPPLY      // วัสดุสิ้นเปลือง
+  FOOD        // อาหารสัตว์
+  SERVICE     // บริการ (ไม่ต้องตัดสต็อก)
+  OTHER       // อื่นๆ
+}
+
+enum MedicineType {
+  INJECTION // ยาแบบฉีด
+  LIQUID    // ยาแบบน้ำ
+  PILL      // ยาแบบเม็ด
+  NONE      // ไม่ใช่ยา
+}
+
+model Inventory {
+  id             String             @id @default(uuid())
+  branchId       String
+  branch         ClinicBranch       @relation(fields: [branchId], references: [id])
+  
+  name           String
+  type           ProductType        @default(MEDICINE)    // Legacy
+  medicineType   MedicineType?      @default(NONE)        // Legacy
+
+  categoryId         String?
+  category           MasterProductCategory? @relation(fields: [categoryId], references: [id])
+  
+  masterMedicineCategoryId String?
+  masterMedicineCategory   MasterMedicineCategory? @relation(fields: [masterMedicineCategoryId], references: [id])
+
+  description    String?
+  price          Float              // ราคาขาย
+  cost           Float              // ทุน
+  
+  quantity       Int                @default(0) // จำนวนคงเหลือในสาขานี้
+  lowStockThreshold Int?            @default(0) // แจ้งเตือนเมื่อสต๊อกต่ำกว่าหรือเท่ากับค่านี้
+  unit           String             // Legacy Unit
+  unitId         String?            // relation to MasterUnit
+  masterUnit     MasterUnit?        @relation("InventoryUnit", fields: [unitId], references: [id])
+
+  lotNumber      String?            // หมายเลขล็อต
+  
+  barcode        String?
+  expirationDate DateTime?          // วันหมดอายุ
+  
+  // Drug Usage Instructions (Pre-set labels)
+  usageAmount    String?            // จำนวนการใช้ (เช่น 0.5, 1)
+  
+  usageUnit      String?            // Legacy
+  usageUnitId    String?            // relation to MasterUnit
+  masterUsageUnit MasterUnit?       @relation("UsageUnit", fields: [usageUnitId], references: [id])
+  
+  usageFrequency String?            // Legacy
+  usageFrequencyId String?
+  masterUsageFrequency MasterUsageInstruction? @relation("FrequencyInstruction", fields: [usageFrequencyId], references: [id])
+  
+  usageTime      String?            // Legacy
+  usageTimeId    String?
+  masterUsageTime MasterUsageInstruction? @relation("TimeInstruction", fields: [usageTimeId], references: [id])
+
+  usageMorning   Boolean            @default(false) // เช้า
+  usageNoon      Boolean            @default(false) // กลางวัน
+  usageEvening   Boolean            @default(false) // เย็น
+  usageNight     Boolean            @default(false) // ก่อนนอน
+  usageRemark    String?            // หมายเหตุการใช้ (เช่น กินติดต่อกันจนหมด, หยุดยาเมื่อหมดอาการ)
+
+  prescriptions  MedicalTreatment[] 
+  invoiceItems   InvoiceItem[]
+  
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([branchId])
+}
+
+// ============================================
+// 💊 9. การสั่งยาที่หักสต็อก (Medication Pipeline)
+// ============================================
+
+model MedicalTreatment {
+  id              String        @id @default(uuid())
+  medicalRecordId String
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id])
+  
+  inventoryId     String
+  inventory       Inventory     @relation(fields: [inventoryId], references: [id])
+  
+  quantity        Int           // จำนวนที่จ่ายออกไป (จะเอาไปลบออกจาก Inventory สาขานั้น)
+  dosage          String?       // วิธีทาน เช่น 1 เม็ด หลังอาหาร
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  @@index([medicalRecordId])
+  @@index([inventoryId])
+}
+
+// ============================================
+// 💉 10. ประวัติการฉีดวัคซีน (Vaccination Records)
+// ============================================
+
+model VaccineRecord {
+  id               String       @id @default(uuid())
+  branchId         String
+  branch           ClinicBranch @relation(fields: [branchId], references: [id])
+  
+  petId            String
+  pet              Pet          @relation(fields: [petId], references: [id])
+  
+  name             String       // ชื่อวัคซีน
+  dateAdministered DateTime     @default(now())
+  nextDueDate      DateTime?    // นัดฉีดเข็มถัดไป
+  
+  veterinarian     String?
+  notes            String?
+  
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([branchId])
+  @@index([petId])
+}
+
+// ============================================
+// 📸 11. รูปภาพประวัติการรักษา (X-Ray, Ultrasound, Lab)
+// ============================================
+
+enum MediaType {
+  XRAY
+  ULTRASOUND
+  LAB_RESULT
+  OTHER
+}
+
+model MedicalImage {
+  id              String        @id @default(uuid())
+  medicalRecordId String
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id])
+  
+  type            MediaType     @default(XRAY)
+  url             String        // Link ไปที่ Amazon S3, Google Cloud Storage
+  description     String?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([medicalRecordId])
+}
+
+// ============================================
+// 📁 12. ข้อมูลหลัก (Master Data)
+// ============================================
+
+model MasterProductCategory {
+  id        String      @id @default(uuid())
+  nameTh    String      @unique // เช่น "ยา", "บริการ"
+  nameEn    String?     // เช่น "Medicine", "Service"
+  isActive  Boolean     @default(true)
+  
+  inventories Inventory[]
+
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model MasterMedicineCategory {
+  id        String      @id @default(uuid())
+  nameTh    String      @unique // เช่น "แบบเม็ด", "แบบฉีด"
+  nameEn    String?     // เช่น "Pill", "Injection"
+  isActive  Boolean     @default(true)
+  
+  units     MasterUnit[]
+  inventories Inventory[]
+
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model MasterUnit {
+  id                 String                  @id @default(uuid())
+  medicineCategoryId String?                 // ผูกกับประเภทยา (null = ใช้ได้ทั่วไป หรือผูกกับ Product Category)
+  medicineCategory   MasterMedicineCategory? @relation(fields: [medicineCategoryId], references: [id])
+  
+  nameTh             String                  // เช่น "เม็ด", "หลอด", "cc"
+  nameEn             String?                 // เช่น "Pill", "Tube", "cc"
+  isActive           Boolean                 @default(true)
+  
+  inventories        Inventory[]             @relation("InventoryUnit")
+  usageInventories   Inventory[]             @relation("UsageUnit")
+
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+}
+
+enum MasterUsageType {
+  FREQUENCY // วันละกี่ครั้ง
+  TIME      // ก่อนอาหาร, หลังอาหาร etc
+}
+
+model MasterUsageInstruction {
+  id        String          @id @default(uuid())
+  type      MasterUsageType // FREQUENCY or TIME
+  nameTh    String          // เช่น "วันละ 1 ครั้ง", "ก่อนอาหาร"
+  nameEn    String?         // เช่น "1 time/day", "Before Meal"
+  isActive  Boolean         @default(true)
+  
+  inventoriesFrequency Inventory[] @relation("FrequencyInstruction")
+  inventoriesTime      Inventory[] @relation("TimeInstruction")
+
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
