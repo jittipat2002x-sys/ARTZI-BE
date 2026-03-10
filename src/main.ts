@@ -8,6 +8,9 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import * as bodyParser from 'body-parser';
 
 async function bootstrap() {
+  if (process.env.NODE_ENV === 'production') {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  }
   const app = await NestFactory.create(AppModule);
 
   // Increase body size limit for base64 logo uploads
