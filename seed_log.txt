@@ -1,0 +1,50 @@
+Loaded Prisma config from prisma.config.ts.
+
+Running seed command `npx ts-node prisma/seed.ts` ...
+🌱 Seeding database...
+(node:81430) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+(Use `node --trace-warnings ...` to show where the warning was created)
+PrismaClientKnownRequestError: 
+Invalid `prisma.role.upsert()` invocation in
+/Users/artzi/Documents/ARTZI_PROJECT/BE/prisma/seed.ts:15:45
+
+  12 console.log('🌱 Seeding database...');
+  13 
+  14 // 1. Create Roles
+→ 15 const saasAdminRole = await prisma.role.upsert(
+Error opening a TLS connection: self-signed certificate in certificate chain
+    at zr.handleRequestError (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client/src/runtime/RequestHandler.ts:237:13)
+    at zr.handleAndLogRequestError (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client/src/runtime/RequestHandler.ts:183:12)
+    at zr.request (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client/src/runtime/RequestHandler.ts:152:12)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async a (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:808:24)
+    at async main (/Users/artzi/Documents/ARTZI_PROJECT/BE/prisma/seed.ts:15:27) {
+  code: 'P1011',
+  meta: {
+    modelName: 'Role',
+    driverAdapterError: DriverAdapterError: TlsConnectionError
+        at PrismaPgAdapter.onError (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/adapter-pg/dist/index.js:687:11)
+        at /Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/adapter-pg/dist/index.js:720:68
+        at processTicksAndRejections (node:internal/process/task_queues:105:5)
+        at async PrismaPgAdapter.startTransaction (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/adapter-pg/dist/index.js:720:18)
+        at async $t.#r (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client-engine-runtime/src/transaction-manager/transaction-manager.ts:125:31)
+        at async $t.startInternalTransaction (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client-engine-runtime/src/transaction-manager/transaction-manager.ts:92:12)
+        at async e.interpretNode (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client-engine-runtime/src/interpreter/query-interpreter.ts:255:33)
+        at async e.run (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client-engine-runtime/src/interpreter/query-interpreter.ts:93:23)
+        at async execute (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client/src/runtime/core/engines/client/LocalExecutor.ts:81:12)
+        at async qt.request (/Users/artzi/Documents/ARTZI_PROJECT/BE/node_modules/@prisma/client/src/runtime/core/engines/client/ClientEngine.ts:492:22) {
+      cause: [Object]
+    }
+  },
+  clientVersion: '7.4.1'
+}
+
+An error occurred while running the seed command:
+Error: Command failed with exit code 1: npx ts-node prisma/seed.ts
