@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsDateString, IsNotEmpty, IsUUID } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsDateString, IsNotEmpty, IsUUID, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { ProductType, MedicineType } from '@prisma/client';
 
@@ -11,6 +11,11 @@ export class CreateInventoryDto {
     @ApiProperty()
     @IsString()
     name: string;
+
+    @ApiPropertyOptional()
+    @IsOptional()
+    @IsBoolean()
+    isActive?: boolean;
 
     @ApiProperty({ enum: ProductType })
     @IsEnum(ProductType)

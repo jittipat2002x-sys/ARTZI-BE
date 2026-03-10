@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInventoryDto, UpdateInventoryDto } from './dto/inventory.dto';
 import { ProductType, MedicineType } from '@prisma/client';
@@ -36,10 +36,14 @@ export class InventoryService {
         return item;
     }
 
-    async findAll(tenantId: string, branchId?: string, type?: ProductType, medicineType?: MedicineType, search?: string, page: number = 1, limit: number = 10, stockAlert: boolean = false) {
+    async findAll(tenantId: string, branchId?: string, type?: ProductType, medicineType?: MedicineType, search?: string, page: number = 1, limit: number = 10, stockAlert: boolean = false, isActive?: boolean) {
         const where: any = {
             branch: { tenantId }
         };
+
+        if (isActive !== undefined) {
+            where.isActive = isActive;
+        }
 
         if (branchId) {
             where.branchId = branchId;
@@ -183,9 +187,39 @@ export class InventoryService {
     }
 
     async remove(id: string, tenantId: string) {
-        await this.findOne(id, tenantId); // Ensure it exists and belongs to tenant
+        const item = await this.prisma.inventory.findFirst({
+            where: {
+                id,
+                branch: { tenantId }
+            },
+            include: {
+                _count: {
+                    select: {
+                        prescriptions: true,
+                        invoiceItems: true,
+                    }
+                }
+            }
+        });
+
+        if (!item) {
+            throw new NotFoundException(`Inventory item with ID ${id} not found`);
+        }
+
+        if (item._count.prescriptions > 0 || item._count.invoiceItems > 0) {
+            throw new BadRequestException('ไม่สามารถลบรายการนี้ได้ เนื่องจากมีประวัติการใช้งานในใบสั่งยาหรือใบแจ้งหนี้แล้ว แนะนำให้เลือกปิดการใช้งานรายการแทน');
+        }
+
         return this.prisma.inventory.delete({
             where: { id },
+        });
+    }
+
+    async toggleStatus(id: string, tenantId: string, isActive: boolean) {
+        await this.findOne(id, tenantId);
+        return this.prisma.inventory.update({
+            where: { id },
+            data: { isActive },
         });
     }
 }

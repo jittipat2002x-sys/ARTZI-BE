@@ -37,6 +37,7 @@ export class InventoryController {
         @Query('page') page?: string,
         @Query('limit') limit?: string,
         @Query('stockAlert') stockAlert?: string,
+        @Query('isActive') isActive?: string,
         @Request() req?: any
     ) {
         this.checkNotSaasAdmin(req);
@@ -47,9 +48,10 @@ export class InventoryController {
             type,
             medicineType,
             search,
-            page ? parseInt(page) : 1,
-            limit ? parseInt(limit) : 10,
-            stockAlert === 'true'
+            page ? parseInt(page as any) : 1,
+            limit ? parseInt(limit as any) : 10,
+            stockAlert === 'true',
+            isActive === undefined ? undefined : isActive === 'true'
         );
     }
 

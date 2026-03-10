@@ -2,6 +2,7 @@ import { IsArray, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString, Vali
 import { Type } from 'class-transformer';
 
 export class CreateMedicalTreatmentDto {
+    // Inventory items used in treatment
     @IsString()
     @IsNotEmpty()
     inventoryId: string;
@@ -21,6 +22,40 @@ export class CreateMedicalTreatmentDto {
     @IsString()
     @IsOptional()
     usageInstructions?: string;
+}
+
+export class CreateLabTestFileDto {
+    @IsString()
+    @IsNotEmpty()
+    name: string;
+
+    @IsString()
+    @IsNotEmpty()
+    base64Data: string;
+
+    @IsString()
+    @IsNotEmpty()
+    contentType: string;
+}
+
+export class CreateLabTestDto {
+    @IsString()
+    @IsNotEmpty()
+    testType: string;
+
+    @IsString()
+    @IsOptional()
+    result?: string;
+
+    @IsString()
+    @IsOptional()
+    notes?: string;
+
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => CreateLabTestFileDto)
+    @IsOptional()
+    files?: CreateLabTestFileDto[];
 }
 
 export class CreateMedicalRecordDto {
@@ -78,6 +113,20 @@ export class CreateMedicalRecordDto {
     @IsString()
     @IsOptional()
     nextAppointmentReason?: string;
+
+    @IsString()
+    @IsOptional()
+    ipdCageId?: string;
+
+    @IsString()
+    @IsOptional()
+    ipdNotes?: string;
+
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => CreateLabTestDto)
+    @IsOptional()
+    labTests?: CreateLabTestDto[];
 }
 
 export class CreateInvoiceItemDto {

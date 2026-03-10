@@ -15,9 +15,19 @@ export class VisitsController {
     findAll(
         @Query('customerId') customerId?: string,
         @Query('date') date?: string,
-        @Query('appointmentId') appointmentId?: string
+        @Query('appointmentId') appointmentId?: string,
+        @Query('search') search?: string,
+        @Query('page') page?: string,
+        @Query('limit') limit?: string
     ) {
-        return this.visitsService.findAll(customerId, date, appointmentId);
+        return this.visitsService.findAll(
+            customerId,
+            date,
+            appointmentId,
+            search,
+            page ? parseInt(page) : 1,
+            limit ? parseInt(limit) : 10
+        );
     }
 
     @Get(':id')

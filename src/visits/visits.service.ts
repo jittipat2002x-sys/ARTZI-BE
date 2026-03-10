@@ -2,9 +2,14 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVisitDto } from './dto/create-visit.dto';
 
+import { MinioService } from '../common/services/minio.service';
+
 @Injectable()
 export class VisitsService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly minioService: MinioService,
+    ) { }
 
     async create(createVisitDto: CreateVisitDto) {
         const {
@@ -81,45 +86,100 @@ export class VisitsService {
                 });
                 recordsToCreate.push(record);
 
-                if (reqRecord.medications && reqRecord.medications.length > 0) {
-                    for (const item of reqRecord.medications) {
-                        const inventory = await tx.inventory.findUnique({
-                            where: { id: item.inventoryId },
-                        });
-                        if (!inventory) throw new BadRequestException(`Inventory item ${item.inventoryId} not found`);
+                // IPD Admission Integration
+                if (reqRecord.ipdCageId) {
+                    await (tx as any).admission.create({
+                        data: {
+                            branchId,
+                            petId: reqRecord.petId,
+                            cageId: reqRecord.ipdCageId,
+                            medicalRecordId: record.id, // Link to the medical record we just created
+                            notes: reqRecord.ipdNotes || '',
+                            reason: reqRecord.diagnosis || reqRecord.symptoms || 'Admitted from treatment',
+                            status: 'ADMITTED',
+                            admittedAt: new Date(),
+                        }
+                    });
+                }
 
-                        if (inventory.type !== 'SERVICE') {
-                            await tx.inventory.update({
-                                where: { id: inventory.id },
-                                data: { quantity: { decrement: item.quantity } },
+                if (reqRecord.medications && reqRecord.medications.length > 0) {
+                        for (const item of reqRecord.medications) {
+                            const inventory = await tx.inventory.findUnique({
+                                where: { id: item.inventoryId },
+                            });
+                            if (!inventory) throw new BadRequestException(`Inventory item ${item.inventoryId} not found`);
+
+                            if (inventory.type !== 'SERVICE') {
+                                await tx.inventory.update({
+                                    where: { id: inventory.id },
+                                    data: { quantity: { decrement: item.quantity } },
+                                });
+                            }
+
+                            const lineTotal = item.quantity * item.unitPrice;
+                            totalInvoiceAmount += lineTotal;
+
+                            const newTreatment = await tx.medicalTreatment.create({
+                                data: {
+                                    medicalRecordId: record.id,
+                                    inventoryId: item.inventoryId,
+                                    quantity: item.quantity,
+                                    unitPrice: item.unitPrice, // Store the price
+                                    dosage: item.usageInstructions || '',
+                                } as any,
+                            });
+                            treatmentsToCreate.push(newTreatment);
+
+                            // NEW: Create an InvoiceItem for this medical treatment linked to the record
+                            await tx.invoiceItem.create({
+                                data: {
+                                    invoiceId: invoice.id,
+                                    medicalRecordId: record.id, // Linking to the pet's medical record
+                                    productId: item.inventoryId,
+                                    name: inventory.name,
+                                    quantity: item.quantity,
+                                    unitPrice: item.unitPrice,
+                                    totalPrice: lineTotal,
+                                } as any
                             });
                         }
+                    }
 
-                        const lineTotal = item.quantity * item.unitPrice;
-                        totalInvoiceAmount += lineTotal;
-
-                        const newTreatment = await tx.medicalTreatment.create({
+                // Lab Test Integration
+                if (reqRecord.labTests && reqRecord.labTests.length > 0) {
+                    for (const labReq of reqRecord.labTests) {
+                        const labTest = await (tx as any).labTest.create({
                             data: {
                                 medicalRecordId: record.id,
-                                inventoryId: item.inventoryId,
-                                quantity: item.quantity,
-                                dosage: item.usageInstructions || '',
-                            },
+                                testType: labReq.testType,
+                                result: labReq.result || '',
+                                notes: labReq.notes || '',
+                            }
                         });
-                        treatmentsToCreate.push(newTreatment);
 
-                        // Note: Since this item is specifically for a pet, it usually shouldn't 
-                        // also exist as a general InvoiceItem. But to keep the Invoice total correct and 
-                        // displayable later, we might want to also add it to generalItems or handle rendering differently.
-                        // For now, we just add it to the final invoice amount.
+                        if (labReq.files && labReq.files.length > 0) {
+                            for (const fileReq of labReq.files) {
+                                // Upload to MinIO
+                                const objectName = await this.minioService.uploadFile(
+                                    fileReq.name,
+                                    fileReq.base64Data,
+                                    fileReq.contentType
+                                );
+
+                                await (tx as any).labTestFile.create({
+                                    data: {
+                                        labTestId: labTest.id,
+                                        url: objectName,
+                                        name: fileReq.name,
+                                    }
+                                });
+                            }
+                        }
                     }
                 }
 
                 // --- 2.2.0 Auto-complete existing scheduled appointments ---
-                console.log(`[Auto-Complete] Record for pet ${reqRecord.petId} has appointmentIds:`, reqRecord.appointmentIds);
-
                 if (reqRecord.appointmentIds && reqRecord.appointmentIds.length > 0) {
-                    console.log(`[Auto-Complete] Explicitly completing appointments: ${reqRecord.appointmentIds.join(', ')}`);
                     for (const appId of reqRecord.appointmentIds) {
                         await tx.appointment.update({
                             where: { id: appId },
@@ -130,7 +190,6 @@ export class VisitsService {
                         });
                     }
                 } else {
-                    // Fallback to searching for appointments on the same day
                     const visitDateObj = visitDate ? new Date(visitDate) : new Date();
                     const vDateParts = new Intl.DateTimeFormat('en-GB', {
                         timeZone: 'Asia/Bangkok',
@@ -147,10 +206,7 @@ export class VisitsService {
                     const vStartOfDay = new Date(`${vDateStr}T00:00:00.000+07:00`);
                     const vEndOfDay = new Date(`${vDateStr}T23:59:59.999+07:00`);
 
-                    console.log(`[Auto-Complete] Checking for pet ${reqRecord.petId} on ${vDateStr}`);
-                    console.log(`[Auto-Complete] Range: ${vStartOfDay.toISOString()} - ${vEndOfDay.toISOString()}`);
-
-                    const updateResult = await tx.appointment.updateMany({
+                    await tx.appointment.updateMany({
                         where: {
                             petId: reqRecord.petId,
                             date: {
@@ -163,15 +219,11 @@ export class VisitsService {
                             status: 'COMPLETED',
                         }
                     });
-                    console.log(`[Auto-Complete] Updated ${updateResult.count} appointments to COMPLETED`);
                 }
 
                 // --- 2.2.1 Create Next Appointment if specified ---
                 if (reqRecord.nextAppointmentDate) {
                     const appointmentDate = new Date(reqRecord.nextAppointmentDate);
-
-                    // Define start and end of the day in Bangkok timezone (UTC+7)
-                    // This ensures we clear any duplicates on the same local day.
                     const localDateParts = new Intl.DateTimeFormat('en-GB', {
                         timeZone: 'Asia/Bangkok',
                         year: 'numeric',
@@ -187,12 +239,7 @@ export class VisitsService {
                     const startOfDay = new Date(`${dateStr}T00:00:00.000+07:00`);
                     const endOfDay = new Date(`${dateStr}T23:59:59.999+07:00`);
 
-                    console.log(`[Appt Check] Pet: ${reqRecord.petId}, Day: ${dateStr}`);
-                    console.log(`[Appt Check] Range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
-
-                    // 1. Delete ALL existing appointments for this pet on the SAME DAY
-                    // that are still in 'SCHEDULED' or 'CANCELLED' status.
-                    const deleteResult = await tx.appointment.deleteMany({
+                    await tx.appointment.deleteMany({
                         where: {
                             petId: reqRecord.petId,
                             date: {
@@ -203,8 +250,6 @@ export class VisitsService {
                         },
                     });
 
-                    console.log(`[Appt Check] Deleted ${deleteResult.count} old appointments`);
-
                     // 2. Create the new appointment
                     await tx.appointment.create({
                         data: {
@@ -214,7 +259,8 @@ export class VisitsService {
                             date: appointmentDate,
                             reason: reqRecord.nextAppointmentReason || 'Follow-up visit',
                             status: 'SCHEDULED',
-                        }
+                            visitId: visit.id, // Linked to visit via visitId scalar
+                        } as any
                     });
                 }
             }
@@ -254,27 +300,22 @@ export class VisitsService {
 
             // 2.5 Update Final Invoice Amounts
             const netAmount = Math.max(0, totalInvoiceAmount - (discount || 0));
-            const updatedInvoice = await tx.invoice.update({
+            await tx.invoice.update({
                 where: { id: invoice.id },
                 data: {
                     totalAmount: totalInvoiceAmount,
                     netAmount,
-                },
-                include: {
-                    items: true
                 }
             });
 
             // 2.6 Fetch full visit with relations for the success response
-            return this.findOne(visit.id);
+            return (this as any).findOne(visit.id, tx);
         });
     }
 
-    async findAll(customerId?: string, dateStr?: string, appointmentId?: string) {
+    async findAll(customerId?: string, dateStr?: string, appointmentId?: string, search?: string, page = 1, limit = 10) {
         const where: any = {};
 
-        // If searching specifically for an appointment's visit, 
-        // we don't need strict date filters which might mismatch due to early treatment
         if (appointmentId) {
             where.appointments = {
                 some: { id: appointmentId }
@@ -282,15 +323,13 @@ export class VisitsService {
         } else {
             if (dateStr) {
                 try {
-                    // Parse date assuming it's in local YYYY-MM-DD format
                     const [year, month, day] = dateStr.split('-').map(Number);
-
-                    // Create UTC markers for start and end of that day
-                    // We expand by 12 hours on both sides to catch any timezone-shifted entries
-                    // since the DB might store in UTC but the intent is "that local day"
                     const baseDate = new Date(Date.UTC(year, month - 1, day));
-                    const startRange = new Date(baseDate.getTime() - (12 * 60 * 60 * 1000));
-                    const endRange = new Date(baseDate.getTime() + (36 * 60 * 60 * 1000));
+                    // Thailand is UTC+7. 
+                    // Start of day in local time is 17:00:00 UTC the day before.
+                    const startRange = new Date(baseDate.getTime() - (7 * 60 * 60 * 1000));
+                    // End of day in local time is 16:59:59.999 UTC on the same day.
+                    const endRange = new Date(startRange.getTime() + (24 * 60 * 60 * 1000) - 1);
 
                     where.visitDate = {
                         gte: startRange,
@@ -306,8 +345,106 @@ export class VisitsService {
             where.customerId = customerId;
         }
 
-        return this.prisma.visit.findMany({
-            where,
+        if (search) {
+            where.AND = [
+                {
+                    OR: [
+                        {
+                            customer: {
+                                OR: [
+                                    { firstName: { contains: search } },
+                                    { lastName: { contains: search } },
+                                    { phone: { contains: search } },
+                                    { lineId: { contains: search } },
+                                ]
+                            }
+                        },
+                        {
+                            medicalRecords: {
+                                some: {
+                                    pet: {
+                                        OR: [
+                                            { name: { contains: search } },
+                                            { tagId: { contains: search } },
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            ];
+        }
+
+        const skip = (page - 1) * limit;
+
+        const [data, total] = await Promise.all([
+            (this.prisma.visit as any).findMany({
+                where,
+                include: {
+                    customer: true,
+                    medicalRecords: {
+                        include: {
+                            pet: true,
+                            vet: true,
+                            medications: {
+                                include: { inventory: true }
+                            },
+                            admission: {
+                                include: {
+                                    cage: {
+                                        include: { ward: true }
+                                    }
+                                }
+                            },
+                            labTests: {
+                                include: { files: true }
+                            }
+                        }
+                    },
+                    invoice: {
+                        include: { items: true }
+                    },
+                    appointments: {
+                        include: { pet: true }
+                    }
+                },
+                skip,
+                take: limit,
+                orderBy: { visitDate: 'desc' }
+            }),
+            this.prisma.visit.count({ where }),
+        ]);
+
+        // Post-process to add signed URLs for lab test files
+        for (const visit of data) {
+            for (const record of visit.medicalRecords) {
+                if (record.labTests) {
+                    for (const lab of record.labTests) {
+                        if (lab.files) {
+                            for (const file of lab.files) {
+                                file.url = await this.minioService.getFileUrl(file.url);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return {
+            data,
+            meta: {
+                total,
+                page,
+                lastPage: Math.ceil(total / limit),
+            },
+        };
+    }
+
+    async findOne(id: string, tx?: any) {
+        const client = tx || this.prisma;
+        const visit = await (client.visit as any).findUnique({
+            where: { id },
             include: {
                 customer: true,
                 medicalRecords: {
@@ -316,34 +453,42 @@ export class VisitsService {
                         vet: true,
                         medications: {
                             include: { inventory: true }
+                        },
+                        admission: {
+                            include: {
+                                cage: {
+                                    include: { ward: true }
+                                }
+                            }
+                        },
+                        labTests: {
+                            include: { files: true }
                         }
                     }
                 },
                 invoice: {
                     include: { items: true }
-                }
-            },
-            orderBy: { visitDate: 'desc' }
-        });
-    }
-
-    findOne(id: string) {
-        return this.prisma.visit.findUnique({
-            where: { id },
-            include: {
-                customer: true,
-                medicalRecords: {
-                    include: {
-                        pet: true,
-                        medications: {
-                            include: { inventory: true }
-                        }
-                    }
                 },
-                invoice: {
-                    include: { items: true }
+                appointments: {
+                    include: { pet: true }
                 }
             }
         });
+
+        if (visit) {
+            for (const record of visit.medicalRecords) {
+                if (record.labTests) {
+                    for (const lab of record.labTests) {
+                        if (lab.files) {
+                            for (const file of lab.files) {
+                                file.url = await this.minioService.getFileUrl(file.url);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return visit;
     }
 }

@@ -37,6 +37,10 @@ export class RegistrationService {
         // 4. Create everything in a transaction
         try {
             return await this.prisma.$transaction(async (tx) => {
+                // 3.1 Calculate Trial Expiry (30 days from now)
+                const trialExpiry = new Date();
+                trialExpiry.setDate(trialExpiry.getDate() + 30);
+
                 // Create Tenant
                 const tenant = await tx.tenant.create({
                     data: {
@@ -46,8 +50,10 @@ export class RegistrationService {
                         phone: dto.clinicPhone,
                         description: dto.clinicDescription,
                         paymentSlipUrl: dto.paymentSlipUrl,
-                        status: 'PENDING', // Always pending first
-                        isActive: false,   // Disabled until approved
+                        status: 'APPROVED', // Auto-approved for free trial
+                        isActive: true,      // Active immediately
+                        activePlan: 'FREE',
+                        planExpiresAt: trialExpiry,
                     },
                 });
 
@@ -82,7 +88,7 @@ export class RegistrationService {
                 });
 
                 return {
-                    message: 'ลงทะเบียนสำเร็จ กรุณารอการอนุมัติจากเจ้าหน้าที่',
+                    message: 'ลงทะเบียนสำเร็จ! บัญชีของคุณพร้อมใช้งานแล้ว (ทดลองใช้งานฟรี 1 เดือน)',
                     clinicId: tenant.id,
                 };
             });

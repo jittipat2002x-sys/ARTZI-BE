@@ -12,7 +12,8 @@ export class AppointmentsService {
         limit = 10,
         status?: string,
         branchId?: string,
-        dateStr?: string
+        dateStr?: string,
+        search?: string
     ) {
         const skip = (page - 1) * limit;
         let whereClause: any = {};
@@ -46,6 +47,15 @@ export class AppointmentsService {
                 gte: startOfDay,
                 lte: endOfDay,
             };
+        }
+
+        if (search) {
+            whereClause.OR = [
+                { pet: { name: { contains: search, mode: 'insensitive' } } },
+                { pet: { customer: { firstName: { contains: search, mode: 'insensitive' } } } },
+                { pet: { customer: { lastName: { contains: search, mode: 'insensitive' } } } },
+                { pet: { customer: { phone: { contains: search, mode: 'insensitive' } } } },
+            ];
         }
 
         const [data, total] = await Promise.all([
@@ -111,5 +121,38 @@ export class AppointmentsService {
                 vet: true
             }
         });
+    }
+
+    async create(createDto: any, branchId: string) {
+        if (!branchId) {
+            throw new NotFoundException('No branch assigned to current user');
+        }
+
+        const petIds: string[] = createDto.petIds || [];
+        if (petIds.length === 0) {
+            throw new Error('At least one pet must be selected');
+        }
+
+        const appointmentPromises = petIds.map((petId) => {
+            return this.prisma.appointment.create({
+                data: {
+                    petId: petId,
+                    vetId: createDto.vetId || null,
+                    date: new Date(createDto.date),
+                    reason: createDto.reason,
+                    status: 'SCHEDULED',
+                    branchId,
+                },
+                include: {
+                    pet: {
+                        include: { customer: true }
+                    },
+                    vet: true,
+                    branch: true
+                }
+            });
+        });
+
+        return Promise.all(appointmentPromises);
     }
 }

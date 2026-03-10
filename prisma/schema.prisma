@@ -90,6 +90,8 @@ model ClinicBranch {
   customers       Customer[]
   pets            Pet[]
   visits          Visit[]
+  wards           Ward[]
+  admissions      Admission[]
 
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
@@ -233,6 +235,7 @@ model Pet {
   medicalRecords MedicalRecord[]
   appointments   Appointment[]
   vaccines       VaccineRecord[]
+  admissions     Admission[]
 
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -309,6 +312,9 @@ model MedicalRecord {
   
   images        MedicalImage[]
   medications   MedicalTreatment[]
+  labTests      LabTest[]
+  invoiceItems  InvoiceItem[]
+  admission     Admission?
   
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
@@ -390,6 +396,9 @@ model InvoiceItem {
   productId     String?       // Can be null if it's a custom fee
   product       Inventory?    @relation(fields: [productId], references: [id])
   
+  medicalRecordId String?
+  medicalRecord   MedicalRecord? @relation(fields: [medicalRecordId], references: [id], onDelete: SetNull)
+  
   name          String        // e.g., "Dog Shampoo", "Consultation Fee"
   quantity      Int           @default(1)
   unitPrice     Float
@@ -400,6 +409,7 @@ model InvoiceItem {
 
   @@index([invoiceId])
   @@index([productId])
+  @@index([medicalRecordId])
 }
 
 // ============================================
@@ -427,6 +437,7 @@ model Inventory {
   branchId       String
   branch         ClinicBranch       @relation(fields: [branchId], references: [id])
   
+  isActive       Boolean            @default(true)
   name           String
   type           ProductType        @default(MEDICINE)    // Legacy
   medicineType   MedicineType?      @default(NONE)        // Legacy
@@ -495,6 +506,7 @@ model MedicalTreatment {
   inventory       Inventory     @relation(fields: [inventoryId], references: [id])
   
   quantity        Int           // จำนวนที่จ่ายออกไป (จะเอาไปลบออกจาก Inventory สาขานั้น)
+  unitPrice       Float         @default(0) // ราคาต่อหน่วย ณ ตอนที่จ่าย
   dosage          String?       // วิธีทาน เช่น 1 เม็ด หลังอาหาร
   
   createdAt       DateTime      @default(now())
@@ -618,4 +630,115 @@ model MasterUsageInstruction {
 
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
+}
+
+// ============================================
+// 🏥 13. ระบบรับฝากเลี้ยง / แอดมิท (IPD & Admission)
+// ============================================
+
+model Ward {
+  id          String       @id @default(uuid())
+  branchId    String
+  branch      ClinicBranch @relation(fields: [branchId], references: [id])
+  
+  name        String       // เช่น หออภิบาลสัตว์เล็ก, หอแมว
+  description String?      @db.Text
+  
+  cages       Cage[]
+  
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([branchId])
+}
+
+model Cage {
+  id          String      @id @default(uuid())
+  wardId      String
+  ward        Ward        @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  
+  name        String      // เช่น กรง A1, ICU-01
+  type        String?     // เช่น OXYGEN, STANDARD
+  size        String?     // S, M, L, XL
+  isActive    Boolean     @default(true)
+  defaultPrice Float?     @default(0)
+  
+  admissions  Admission[]
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([wardId])
+}
+
+enum AdmissionStatus {
+  ADMITTED
+  DISCHARGED
+}
+
+model Admission {
+  id          String          @id @default(uuid())
+  branchId    String
+  branch      ClinicBranch    @relation(fields: [branchId], references: [id])
+  
+  petId       String
+  pet         Pet             @relation(fields: [petId], references: [id])
+  
+  cageId      String
+  cage        Cage            @relation(fields: [cageId], references: [id])
+  
+  status      AdmissionStatus @default(ADMITTED)
+  admittedAt  DateTime        @default(now())
+  dischargedAt DateTime?
+  
+  isBoarding  Boolean         @default(false)
+  dailyPrice  Float?
+  estimatedDays Int?
+  
+  reason      String?         @db.Text
+  notes       String?         @db.Text
+  
+  medicalRecordId String?         @unique
+  medicalRecord   MedicalRecord?  @relation(fields: [medicalRecordId], references: [id])
+  
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([petId])
+  @@index([cageId])
+  @@index([branchId])
+}
+
+// ============================================
+// 🧪 11.5 ผลตรวจทางห้องปฏิบัติการ (Lab Tests)
+// ============================================
+
+model LabTest {
+  id              String        @id @default(uuid())
+  medicalRecordId String
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade)
+  
+  testType        String        // เช่น CBC, Blood Chemistry, X-Ray Result
+  result          String?       @db.Text
+  notes           String?       @db.Text
+  
+  files           LabTestFile[]
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([medicalRecordId])
+}
+
+model LabTestFile {
+  id          String   @id @default(uuid())
+  labTestId   String
+  labTest     LabTest  @relation(fields: [labTestId], references: [id], onDelete: Cascade)
+  
+  url         String   // MinIO object name
+  name        String   // original filename
+  
+  createdAt   DateTime @default(now())
+
+  @@index([labTestId])
 }

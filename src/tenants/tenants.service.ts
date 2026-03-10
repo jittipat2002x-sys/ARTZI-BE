@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { UpdateTenantStatusDto } from './dto/tenant.dto';
+import { UpdateTenantStatusDto, SubmitRenewalDto } from './dto/tenant.dto';
 
 @Injectable()
 export class TenantsService {
@@ -93,11 +93,60 @@ export class TenantsService {
         };
 
         if (updateDto.activePlan) data.activePlan = updateDto.activePlan;
-        if (updateDto.planExpiresAt) data.planExpiresAt = new Date(updateDto.planExpiresAt);
+        
+        // If approved, extend expiry date
+        if (updateDto.status === 'APPROVED') {
+            const now = new Date();
+            let newExpiry: Date;
+            let baseDate: Date;
+
+            if (updateDto.planExpiresAt) {
+                newExpiry = new Date(updateDto.planExpiresAt);
+                baseDate = now; // For the transaction log, we start from now if it's a manual set
+            } else {
+                // Default: Extend by 30 days
+                // If current plan is already valid, extend from current expiry. 
+                // If expired or null, start from NOW.
+                baseDate = (tenant.planExpiresAt && new Date(tenant.planExpiresAt) > now) 
+                    ? new Date(tenant.planExpiresAt) 
+                    : now;
+                
+                newExpiry = new Date(baseDate);
+                newExpiry.setDate(newExpiry.getDate() + 30); // Extend by 30 days
+            }
+
+            data.planExpiresAt = newExpiry;
+
+            // Log to Subscription history
+            await this.prisma.subscription.create({
+                data: {
+                    tenantId: id,
+                    planName: updateDto.activePlan || tenant.activePlan || 'FREE',
+                    amountPaid: 0, // Manual tracking
+                    billingCycle: 'MONTHLY',
+                    startDate: baseDate,
+                    endDate: newExpiry,
+                    paymentStatus: 'PAID',
+                }
+            });
+        }
 
         return this.prisma.tenant.update({
             where: { id },
             data,
+        });
+    }
+
+    async submitRenewal(tenantId: string, dto: SubmitRenewalDto) {
+        const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+        if (!tenant) throw new NotFoundException('Clinic not found');
+
+        return this.prisma.tenant.update({
+            where: { id: tenantId },
+            data: {
+                status: 'RENEW_PENDING',
+                paymentSlipUrl: dto.paymentSlipUrl,
+            }
         });
     }
 
@@ -119,6 +168,13 @@ export class TenantsService {
                 brandColor: data.brandColor,
                 logoUrl: data.logoUrl,
             },
+        });
+    }
+
+    async getSubscriptions(tenantId: string) {
+        return this.prisma.subscription.findMany({
+            where: { tenantId },
+            orderBy: { createdAt: 'desc' },
         });
     }
 }

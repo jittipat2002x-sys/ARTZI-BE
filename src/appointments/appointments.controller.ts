@@ -1,6 +1,7 @@
-import { Controller, Get, Patch, Param, Body, UseGuards, Req, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, UseGuards, Req, Query } from '@nestjs/common';
 import { AppointmentsService } from './appointments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CreateAppointmentDto } from './dto/create-appointment.dto';
 
 @Controller('appointments')
 @UseGuards(JwtAuthGuard)
@@ -15,6 +16,7 @@ export class AppointmentsController {
         @Query('status') status?: string,
         @Query('branchId') branchId?: string,
         @Query('date') date?: string,
+        @Query('search') search?: string,
     ) {
         const branchIds = req.user.branches?.map((b: any) => b.branchId) || [];
         const tenantId = req.user.tenantId;
@@ -25,8 +27,16 @@ export class AppointmentsController {
             Number(limit) || 10,
             status,
             branchId,
-            date
+            date,
+            search
         );
+    }
+
+    @Post()
+    create(@Req() req: any, @Body() createAppointmentDto: CreateAppointmentDto) {
+        // Will use the first branch of the user for creation if not otherwise specified.
+        const branchId = req.user.branches?.[0]?.branchId;
+        return this.appointmentsService.create(createAppointmentDto, branchId);
     }
 
     @Patch(':id')
@@ -34,3 +44,4 @@ export class AppointmentsController {
         return this.appointmentsService.update(id, updateAppointmentDto);
     }
 }
+

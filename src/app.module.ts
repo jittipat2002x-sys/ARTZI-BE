@@ -15,8 +15,11 @@ import { PetsModule } from './pets/pets.module';
 import { MasterDataModule } from './master-data/master-data.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { VisitsModule } from './visits/visits.module';
+import { MinioService } from './common/services/minio.service';
 import { MedicalRecordsModule } from './medical-records/medical-records.module';
 import { AppointmentsModule } from './appointments/appointments.module';
+import { WardsModule } from './wards/wards.module';
+import { AdmissionsModule } from './admissions/admissions.module';
 
 @Module({
   imports: [
@@ -35,10 +38,13 @@ import { AppointmentsModule } from './appointments/appointments.module';
     VisitsModule,
     MedicalRecordsModule,
     AppointmentsModule,
+    WardsModule,
+    AdmissionsModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
+    MinioService,
     {
       provide: 'APP_GUARD',
       useClass: JwtAuthGuard,

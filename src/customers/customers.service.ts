@@ -26,6 +26,17 @@ export class CustomersService {
                 { firstName: { contains: search, mode: 'insensitive' } },
                 { lastName: { contains: search, mode: 'insensitive' } },
                 { phone: { contains: search, mode: 'insensitive' } },
+                { lineId: { contains: search, mode: 'insensitive' } },
+                {
+                    pets: {
+                        some: {
+                            OR: [
+                                { name: { contains: search, mode: 'insensitive' } },
+                                { tagId: { contains: search, mode: 'insensitive' } },
+                            ],
+                        },
+                    },
+                },
             ];
         }
 

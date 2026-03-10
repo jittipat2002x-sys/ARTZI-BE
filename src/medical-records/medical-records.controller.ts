@@ -43,6 +43,13 @@ export class MedicalRecordsController {
                             }
                         }
                     }
+                },
+                admission: {
+                    include: {
+                        cage: {
+                            include: { ward: true }
+                        }
+                    }
                 }
             },
             orderBy: { visitDate: 'desc' }

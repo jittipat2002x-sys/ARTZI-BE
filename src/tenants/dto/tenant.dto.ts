@@ -5,6 +5,7 @@ export enum TenantStatus {
     PENDING = 'PENDING',
     APPROVED = 'APPROVED',
     REJECTED = 'REJECTED',
+    RENEW_PENDING = 'RENEW_PENDING',
 }
 
 export class UpdateTenantStatusDto {
@@ -68,4 +69,10 @@ export class UpdateBrandingDto {
     @IsString()
     @IsOptional()
     logoUrl?: string;
+}
+
+export class SubmitRenewalDto {
+    @ApiProperty({ description: 'URL of the new payment slip' })
+    @IsString()
+    paymentSlipUrl: string;
 }

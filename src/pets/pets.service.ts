@@ -23,15 +23,32 @@ export class PetsService {
         }
     }
 
-    async findAll(tenantId: string, customerId?: string) {
+    async findAll(tenantId: string, customerId?: string, search?: string) {
         const where: any = { tenantId };
         if (customerId) where.customerId = customerId;
+
+        if (search) {
+            where.OR = [
+                { name: { contains: search, mode: 'insensitive' } },
+                { tagId: { contains: search, mode: 'insensitive' } },
+                {
+                    customer: {
+                        OR: [
+                            { firstName: { contains: search, mode: 'insensitive' } },
+                            { lastName: { contains: search, mode: 'insensitive' } },
+                            { phone: { contains: search, mode: 'insensitive' } },
+                        ]
+                    }
+                },
+            ];
+        }
 
         return this.prisma.pet.findMany({
             where,
             include: {
                 customer: true,
             },
+            take: search ? 20 : 50,
             orderBy: { createdAt: 'desc' },
         });
     }

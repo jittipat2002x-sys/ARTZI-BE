@@ -84,6 +84,7 @@ export class AuthService {
                 brandColor: user.tenant?.brandColor || null,
                 logoUrl: user.tenant?.logoUrl || null,
                 branchName: user.branches?.[0]?.branch?.name || null,
+                branchId: user.branches?.[0]?.branchId || null,
                 subscriptionStatus,
                 daysRemaining
             }

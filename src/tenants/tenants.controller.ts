@@ -2,7 +2,7 @@ import { Controller, Get, Patch, Delete, Param, Body, UseGuards, Query, Request,
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantsService } from './tenants.service';
-import { UpdateTenantStatusDto, UpdateBrandingDto } from './dto/tenant.dto';
+import { UpdateTenantStatusDto, UpdateBrandingDto, SubmitRenewalDto } from './dto/tenant.dto';
 
 @ApiTags('tenants')
 @ApiBearerAuth()
@@ -27,6 +27,13 @@ export class TenantsController {
         );
     }
 
+    @ApiOperation({ summary: 'Get current tenant details' })
+    @Get('me')
+    async getMe(@Request() req: any) {
+        if (!req.user.tenantId) throw new ForbiddenException('Only clinic users can access their details');
+        return this.tenantsService.findOne(req.user.tenantId);
+    }
+
     // ⚠️ Static routes MUST come before :id param route
     @ApiOperation({ summary: 'Get branding for current tenant' })
     @Get('my/branding')
@@ -41,6 +48,20 @@ export class TenantsController {
     async updateBranding(@Request() req: any, @Body() dto: UpdateBrandingDto) {
         if (!req.user.tenantId) throw new ForbiddenException('Only clinic users can update branding');
         return this.tenantsService.updateBranding(req.user.tenantId, dto);
+    }
+
+    @ApiOperation({ summary: 'Submit renewal slip' })
+    @Patch('my/renew')
+    async submitRenewal(@Request() req: any, @Body() dto: SubmitRenewalDto) {
+        if (!req.user.tenantId) throw new ForbiddenException('Only clinic users can submit renewal');
+        return this.tenantsService.submitRenewal(req.user.tenantId, dto);
+    }
+
+    @ApiOperation({ summary: 'Get current tenant subscription history' })
+    @Get('my/subscriptions')
+    async getMySubscriptions(@Request() req: any) {
+        if (!req.user.tenantId) throw new ForbiddenException('Only clinic users can access history');
+        return this.tenantsService.getSubscriptions(req.user.tenantId);
     }
 
     @ApiOperation({ summary: 'Get clinic details' })
@@ -63,5 +84,11 @@ export class TenantsController {
     @Delete(':id')
     delete(@Param('id') id: string) {
         return this.tenantsService.delete(id);
+    }
+
+    @ApiOperation({ summary: 'Get clinic subscription history (SuperAdmin)' })
+    @Get(':id/subscriptions')
+    getClinicSubscriptions(@Param('id') id: string) {
+        return this.tenantsService.getSubscriptions(id);
     }
 }

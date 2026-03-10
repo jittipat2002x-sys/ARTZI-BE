@@ -30,13 +30,15 @@ export class PetsController {
     @Get()
     @ApiOperation({ summary: 'Get all pets' })
     @ApiQuery({ name: 'customerId', required: false })
+    @ApiQuery({ name: 'search', required: false })
     findAll(
         @Query('customerId') customerId?: string,
+        @Query('search') search?: string,
         @Request() req?: any
     ) {
         this.checkNotSaasAdmin(req);
         const tenantId = req?.user?.tenantId;
-        return this.petsService.findAll(tenantId, customerId);
+        return this.petsService.findAll(tenantId, customerId, search);
     }
 
     @Get(':id')
