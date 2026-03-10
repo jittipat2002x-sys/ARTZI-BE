@@ -6,7 +6,11 @@ import { Pool } from 'pg';
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit {
     constructor() {
-        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        const isProduction = process.env.NODE_ENV === 'production';
+        const pool = new Pool({ 
+            connectionString: process.env.DATABASE_URL,
+            ssl: isProduction ? { rejectUnauthorized: false } : false
+        });
         const adapter = new PrismaPg(pool);
         super({ adapter });
     }
