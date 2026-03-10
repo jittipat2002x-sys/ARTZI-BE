@@ -19,11 +19,15 @@ export class MinioService implements OnModuleInit {
     }
 
     async onModuleInit() {
-        const bucketExists = await this.minioClient.bucketExists(this.bucketName);
-        if (!bucketExists) {
-            await this.minioClient.makeBucket(this.bucketName);
-            // Optional: Set bucket policy to public-read for easier access if desired, 
-            // but for medical data, signed URLs are better.
+        try {
+            const bucketExists = await this.minioClient.bucketExists(this.bucketName);
+            if (!bucketExists) {
+                await this.minioClient.makeBucket(this.bucketName);
+            }
+            console.log('✅ MinIO Storage initialized');
+        } catch (error) {
+            console.warn('⚠️ MinIO Storage connection failed. File uploads will not work.');
+            console.error(error);
         }
     }
 
