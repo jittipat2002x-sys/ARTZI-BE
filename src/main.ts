@@ -8,7 +8,8 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import * as bodyParser from 'body-parser';
 
 async function bootstrap() {
-  if (process.env.NODE_ENV === 'production') {
+  const dbUrl = process.env.DATABASE_URL || '';
+  if (dbUrl.includes('supabase') || process.env.NODE_ENV === 'production') {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
   }
   const app = await NestFactory.create(AppModule);
