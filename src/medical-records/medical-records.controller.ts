@@ -1,14 +1,18 @@
 import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateMedicalTreatmentDto } from './dto/update-medical-treatment.dto';
+import { MinioService } from '../common/services/minio.service';
 
 @Controller('medical-records')
 export class MedicalRecordsController {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly minioService: MinioService
+    ) { }
 
     @Get('pet/:petId')
     async getPetHistory(@Param('petId') petId: string) {
-        return this.prisma.medicalRecord.findMany({
+        const records = await this.prisma.medicalRecord.findMany({
             where: { petId },
             include: {
                 vet: {
@@ -50,10 +54,35 @@ export class MedicalRecordsController {
                             include: { ward: true }
                         }
                     }
+                },
+                labTests: {
+                    include: { files: true }
                 }
             },
             orderBy: { visitDate: 'desc' }
         });
+
+        console.log('--- DEBUG PET HISTORY ---');
+        if (records && records.length > 0) {
+            console.log('First record labTests keys:', Object.keys(records[0].labTests || {}));
+            console.log('Record 0 labTests:', JSON.stringify(records[0].labTests));
+        }
+
+        if (records) {
+            for (const record of records) {
+                if (record.labTests) {
+                    for (const lab of record.labTests) {
+                        if (lab.files) {
+                            for (const file of lab.files) {
+                                file.url = await this.minioService.getFileUrl(file.url);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return records;
     }
 
     @Patch('medication/:id')

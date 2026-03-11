@@ -40,13 +40,29 @@ export class AppointmentsService {
         }
 
         if (dateStr) {
-            // Assume dateStr is 'YYYY-MM-DD'
-            const startOfDay = new Date(`${dateStr}T00:00:00.000+07:00`);
-            const endOfDay = new Date(`${dateStr}T23:59:59.999+07:00`);
-            whereClause.date = {
-                gte: startOfDay,
-                lte: endOfDay,
-            };
+            // Support both 'YYYY-MM-DD' and 'YYYY-MM'
+            if (dateStr.length === 7) {
+                const [year, month] = dateStr.split('-');
+                // start of month with +07:00 offset roughly
+                // Use local timezone of server or simple UTC
+                // Actually safer to construct exact strings for UTC+7
+                const startOfMonth = new Date(`${dateStr}-01T00:00:00.000+07:00`);
+                // Get last day of month
+                const lastDay = new Date(Number(year), Number(month), 0).getDate();
+                const endOfMonth = new Date(`${dateStr}-${String(lastDay).padStart(2, '0')}T23:59:59.999+07:00`);
+                
+                whereClause.date = {
+                    gte: startOfMonth,
+                    lte: endOfMonth,
+                };
+            } else {
+                const startOfDay = new Date(`${dateStr}T00:00:00.000+07:00`);
+                const endOfDay = new Date(`${dateStr}T23:59:59.999+07:00`);
+                whereClause.date = {
+                    gte: startOfDay,
+                    lte: endOfDay,
+                };
+            }
         }
 
         if (search) {
