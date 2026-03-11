@@ -20,6 +20,9 @@ export class MedicalRecordsController {
                 },
                 visit: {
                     include: {
+                        customer: {
+                            select: { firstName: true, lastName: true }
+                        },
                         invoice: {
                             include: { items: true }
                         }
@@ -27,6 +30,9 @@ export class MedicalRecordsController {
                 },
                 pet: {
                     include: {
+                        customer: {
+                            select: { firstName: true, lastName: true }
+                        },
                         appointments: {
                             where: { status: 'SCHEDULED' },
                             orderBy: { date: 'asc' }

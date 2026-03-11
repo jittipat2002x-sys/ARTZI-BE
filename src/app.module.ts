@@ -20,6 +20,8 @@ import { MedicalRecordsModule } from './medical-records/medical-records.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { WardsModule } from './wards/wards.module';
 import { AdmissionsModule } from './admissions/admissions.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -40,6 +42,8 @@ import { AdmissionsModule } from './admissions/admissions.module';
     AppointmentsModule,
     WardsModule,
     AdmissionsModule,
+    DashboardModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [

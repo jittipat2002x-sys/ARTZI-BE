@@ -98,6 +98,10 @@ async function main() {
         data: { name: 'ลูกค้าและสัตว์เลี้ยง', path: '/dashboard/customers', icon: 'Users', sortOrder: 6.5 },
     });
 
+    const ipdMenu = await prisma.menu.create({
+        data: { name: 'แอดมิท (IPD)', path: '/dashboard/ipd', icon: 'Layout', sortOrder: 6.7 },
+    });
+
     const inventoryMenu = await prisma.menu.create({
         data: { name: 'คลังยา/สินค้า', path: '/dashboard/inventory', icon: 'Package', sortOrder: 7 },
     });
@@ -145,10 +149,34 @@ async function main() {
     }
 
     // OWNER gets specific menus
-    const ownerMenus = [dashboardMenu, appointmentMenu, medicalMenu, customerMenu, inventoryMenu, billingMenu, reportsMenu, branchMgmtMenu, brandingMenu];
+    const ownerMenus = [dashboardMenu, appointmentMenu, medicalMenu, customerMenu, ipdMenu, inventoryMenu, billingMenu, reportsMenu, branchMgmtMenu, brandingMenu];
     for (const menu of ownerMenus) {
         await prisma.roleMenu.create({
             data: { roleId: ownerRole.id, menuId: menu.id },
+        });
+    }
+
+    // VET gets specific menus
+    const vetMenus = [dashboardMenu, appointmentMenu, medicalMenu, customerMenu, ipdMenu, inventoryMenu, billingMenu, reportsMenu];
+    for (const menu of vetMenus) {
+        await prisma.roleMenu.create({
+            data: { roleId: vetRole.id, menuId: menu.id },
+        });
+    }
+
+    // NURSE gets specific menus
+    const nurseMenus = [dashboardMenu, appointmentMenu, medicalMenu, customerMenu, ipdMenu, inventoryMenu];
+    for (const menu of nurseMenus) {
+        await prisma.roleMenu.create({
+            data: { roleId: nurseRole.id, menuId: menu.id },
+        });
+    }
+
+    // RECEPTIONIST gets specific menus
+    const receptionistMenus = [dashboardMenu, appointmentMenu, medicalMenu, customerMenu, ipdMenu, inventoryMenu, billingMenu];
+    for (const menu of receptionistMenus) {
+        await prisma.roleMenu.create({
+            data: { roleId: receptionistRole.id, menuId: menu.id },
         });
     }
     console.log('✅ Menus assigned to roles');
