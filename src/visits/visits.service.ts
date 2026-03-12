@@ -19,7 +19,8 @@ export class VisitsService {
             medicalRecords,
             generalItems,
             discount,
-            paymentMethod
+            paymentMethod,
+            status
         } = createVisitDto;
 
         // 1. Verify Customer exists and belongs to branch
@@ -38,6 +39,7 @@ export class VisitsService {
                     customerId,
                     branchId,
                     visitDate: visitDate ? new Date(visitDate) : new Date(),
+                    status: status || 'COMPLETED',
                 },
             });
 
@@ -82,6 +84,7 @@ export class VisitsService {
                         treatment: reqRecord.treatment || '',
                         prescription: reqRecord.prescription || '',
                         notes: reqRecord.notes || '',
+                        isSurgery: reqRecord.isSurgery || false,
                     }
                 });
                 recordsToCreate.push(record);
@@ -100,6 +103,33 @@ export class VisitsService {
                             admittedAt: new Date(),
                         }
                     });
+                }
+
+                // Digital Consent Forms Integration
+                if (reqRecord.pendingConsents && reqRecord.pendingConsents.length > 0) {
+                    for (const consent of reqRecord.pendingConsents) {
+                        try {
+                            // 1. Upload signature to MinIO
+                            const fileName = `signature-${reqRecord.petId}-${Date.now()}.png`;
+                            const objectName = await this.minioService.uploadFile(fileName, consent.signatureBase64, 'image/png');
+
+                            // 2. Save to database
+                            await tx.signedConsentForm.create({
+                                data: {
+                                    templateId: consent.templateId,
+                                    petId: reqRecord.petId,
+                                    medicalRecordId: record.id,
+                                    signedBy: consent.signedBy,
+                                    signatureUrl: objectName,
+                                    contentSnapshot: consent.contentSnapshot,
+                                }
+                            });
+                        } catch (e) {
+                            console.error('Error processing deferred consent:', e);
+                            // We might want to continue or fail. Failing is safer for consistency.
+                            throw new BadRequestException('Failed to process digital consent signature');
+                        }
+                    }
                 }
 
                 if (reqRecord.medications && reqRecord.medications.length > 0) {
@@ -126,6 +156,7 @@ export class VisitsService {
                                     quantity: item.quantity,
                                     unitPrice: item.unitPrice, // Store the price
                                     dosage: item.usageInstructions || '',
+                                    requiresConsent: inventory.requiresConsent,
                                 } as any,
                             });
                             treatmentsToCreate.push(newTreatment);
@@ -399,7 +430,8 @@ export class VisitsService {
                             },
                             labTests: {
                                 include: { files: true }
-                            }
+                            },
+                            signedConsentForms: true
                         }
                     },
                     invoice: {
@@ -425,6 +457,13 @@ export class VisitsService {
                             for (const file of lab.files) {
                                 file.url = await this.minioService.getFileUrl(file.url);
                             }
+                        }
+                    }
+                }
+                if (record.signedConsentForms) {
+                    for (const form of record.signedConsentForms) {
+                        if (form.signatureUrl) {
+                            form.signatureUrl = await this.minioService.getFileUrl(form.signatureUrl);
                         }
                     }
                 }
@@ -463,7 +502,8 @@ export class VisitsService {
                         },
                         labTests: {
                             include: { files: true }
-                        }
+                        },
+                        signedConsentForms: true
                     }
                 },
                 invoice: {
@@ -486,9 +526,246 @@ export class VisitsService {
                         }
                     }
                 }
+                if (record.signedConsentForms) {
+                    for (const form of record.signedConsentForms) {
+                        if (form.signatureUrl) {
+                            form.signatureUrl = await this.minioService.getFileUrl(form.signatureUrl);
+                        }
+                    }
+                }
             }
         }
 
         return visit;
+    }
+
+    async update(id: string, updateVisitDto: CreateVisitDto) {
+        const existingVisit = await this.prisma.visit.findUnique({
+            where: { id },
+            include: {
+                medicalRecords: {
+                    include: {
+                        medications: true
+                    }
+                }
+            }
+        });
+
+        if (!existingVisit) {
+            throw new BadRequestException('Visit not found');
+        }
+
+        return this.prisma.$transaction(async (tx) => {
+            // Restore inventory for old medications
+            for (const record of existingVisit.medicalRecords) {
+                for (const med of record.medications) {
+                    await tx.inventory.update({
+                        where: { id: med.inventoryId },
+                        data: { quantity: { increment: med.quantity } }
+                    });
+                }
+            }
+
+            // Delete old associated records (MedicalRecord deletion cascades)
+            await tx.medicalRecord.deleteMany({
+                where: { visitId: id }
+            });
+            await tx.invoice.deleteMany({
+                where: { visitId: id }
+            });
+
+            // Re-run creation logic (but use existing visit metadata)
+            const {
+                customerId,
+                branchId,
+                visitDate,
+                medicalRecords,
+                generalItems,
+                discount,
+                paymentMethod,
+                status
+            } = updateVisitDto;
+
+            // Update the Visit entry
+            const visit = await tx.visit.update({
+                where: { id },
+                data: {
+                    customerId,
+                    branchId,
+                    visitDate: visitDate ? new Date(visitDate) : new Date(),
+                    status: status || 'COMPLETED',
+                },
+            });
+
+            let totalInvoiceAmount = 0;
+
+            // Create initial Invoice
+            const invoice = await tx.invoice.create({
+                data: {
+                    branchId,
+                    customerId,
+                    visitId: visit.id,
+                    totalAmount: 0,
+                    discount: discount || 0,
+                    netAmount: 0,
+                    status: 'UNPAID',
+                    paymentMethod,
+                    paymentDate: paymentMethod ? new Date() : null,
+                },
+            });
+
+            for (const reqRecord of medicalRecords) {
+                const record = await tx.medicalRecord.create({
+                    data: {
+                        branchId,
+                        visitId: visit.id,
+                        petId: reqRecord.petId,
+                        vetId: reqRecord.vetId,
+                        visitDate: visit.visitDate,
+                        weightAtVisit: reqRecord.weightAtVisit,
+                        temperature: reqRecord.temperature,
+                        symptoms: reqRecord.symptoms || '',
+                        diagnosis: reqRecord.diagnosis || '',
+                        treatment: reqRecord.treatment || '',
+                        prescription: reqRecord.prescription || '',
+                        notes: reqRecord.notes || '',
+                        isSurgery: reqRecord.isSurgery || false,
+                    }
+                });
+
+                // Digital Consent Forms Integration
+                if (reqRecord.pendingConsents && reqRecord.pendingConsents.length > 0) {
+                    for (const consent of reqRecord.pendingConsents) {
+                        const fileName = `signature-${reqRecord.petId}-${Date.now()}.png`;
+                        const objectName = await this.minioService.uploadFile(fileName, consent.signatureBase64, 'image/png');
+
+                        await tx.signedConsentForm.create({
+                            data: {
+                                templateId: consent.templateId,
+                                petId: reqRecord.petId,
+                                medicalRecordId: record.id,
+                                signedBy: consent.signedBy,
+                                signatureUrl: objectName,
+                                contentSnapshot: consent.contentSnapshot,
+                            }
+                        });
+                    }
+                }
+
+                if (reqRecord.medications && reqRecord.medications.length > 0) {
+                    for (const item of reqRecord.medications) {
+                        const inventory = await tx.inventory.findUnique({
+                            where: { id: item.inventoryId },
+                        });
+                        if (!inventory) throw new BadRequestException(`Inventory item ${item.inventoryId} not found`);
+
+                        if (inventory.type !== 'SERVICE') {
+                            await tx.inventory.update({
+                                where: { id: inventory.id },
+                                data: { quantity: { decrement: item.quantity } },
+                            });
+                        }
+
+                        const lineTotal = item.quantity * item.unitPrice;
+                        totalInvoiceAmount += lineTotal;
+
+                        await tx.medicalTreatment.create({
+                            data: {
+                                medicalRecordId: record.id,
+                                inventoryId: item.inventoryId,
+                                quantity: item.quantity,
+                                unitPrice: item.unitPrice,
+                                dosage: item.usageInstructions || '',
+                                requiresConsent: inventory.requiresConsent,
+                            } as any,
+                        });
+
+                        await tx.invoiceItem.create({
+                            data: {
+                                invoiceId: invoice.id,
+                                medicalRecordId: record.id,
+                                productId: item.inventoryId,
+                                name: inventory.name,
+                                quantity: item.quantity,
+                                unitPrice: item.unitPrice,
+                                totalPrice: lineTotal,
+                            } as any
+                        });
+                    }
+                }
+
+                if (reqRecord.labTests && reqRecord.labTests.length > 0) {
+                    for (const labReq of reqRecord.labTests) {
+                        const labTest = await (tx as any).labTest.create({
+                            data: {
+                                medicalRecordId: record.id,
+                                testType: labReq.testType,
+                                result: labReq.result || '',
+                                notes: labReq.notes || '',
+                            }
+                        });
+
+                        if (labReq.files && labReq.files.length > 0) {
+                            for (const fileReq of labReq.files) {
+                                const objectName = await this.minioService.uploadFile(
+                                    fileReq.name,
+                                    fileReq.base64Data,
+                                    fileReq.contentType
+                                );
+                                await (tx as any).labTestFile.create({
+                                    data: {
+                                        labTestId: labTest.id,
+                                        url: objectName,
+                                        name: fileReq.name,
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Create general items
+            if (generalItems && generalItems.length > 0) {
+                for (const item of generalItems) {
+                    const inventory = item.productId 
+                        ? await tx.inventory.findUnique({ where: { id: item.productId } })
+                        : null;
+
+                    if (inventory && inventory.type !== 'SERVICE') {
+                        await tx.inventory.update({
+                            where: { id: inventory.id },
+                            data: { quantity: { decrement: item.quantity } },
+                        });
+                    }
+
+                    const lineTotal = item.quantity * item.unitPrice;
+                    totalInvoiceAmount += lineTotal;
+
+                    await tx.invoiceItem.create({
+                        data: {
+                            invoiceId: invoice.id,
+                            productId: item.productId,
+                            name: item.name,
+                            quantity: item.quantity,
+                            unitPrice: item.unitPrice,
+                            totalPrice: lineTotal,
+                        }
+                    });
+                }
+            }
+
+            // Update invoice total
+            const finalNetAmount = totalInvoiceAmount - (discount || 0);
+            await tx.invoice.update({
+                where: { id: invoice.id },
+                data: {
+                    totalAmount: totalInvoiceAmount,
+                    netAmount: finalNetAmount > 0 ? finalNetAmount : 0,
+                },
+            });
+
+            return visit;
+        });
     }
 }

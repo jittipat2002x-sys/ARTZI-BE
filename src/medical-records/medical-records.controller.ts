@@ -20,9 +20,7 @@ export class MedicalRecordsController {
                 },
                 visit: {
                     include: {
-                        customer: {
-                            select: { firstName: true, lastName: true }
-                        },
+                        customer: true,
                         invoice: {
                             include: { items: true }
                         }
@@ -30,9 +28,7 @@ export class MedicalRecordsController {
                 },
                 pet: {
                     include: {
-                        customer: {
-                            select: { firstName: true, lastName: true }
-                        },
+                        customer: true,
                         appointments: {
                             where: { status: 'SCHEDULED' },
                             orderBy: { date: 'asc' }
@@ -68,11 +64,6 @@ export class MedicalRecordsController {
             orderBy: { visitDate: 'desc' }
         });
 
-        console.log('--- DEBUG PET HISTORY ---');
-        if (records && records.length > 0) {
-            console.log('First record labTests keys:', Object.keys(records[0].labTests || {}));
-            console.log('Record 0 labTests:', JSON.stringify(records[0].labTests));
-        }
 
         if (records) {
             for (const record of records) {

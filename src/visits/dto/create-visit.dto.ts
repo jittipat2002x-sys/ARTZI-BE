@@ -1,4 +1,4 @@
-import { IsArray, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateMedicalTreatmentDto {
@@ -58,7 +58,29 @@ export class CreateLabTestDto {
     files?: CreateLabTestFileDto[];
 }
 
+export class CreatePendingConsentDto {
+    @IsString()
+    @IsNotEmpty()
+    templateId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    signedBy: string;
+
+    @IsString()
+    @IsNotEmpty()
+    signatureBase64: string;
+
+    @IsString()
+    @IsNotEmpty()
+    contentSnapshot: string;
+}
+
 export class CreateMedicalRecordDto {
+    @IsString()
+    @IsOptional()
+    id?: string;
+
     @IsString()
     @IsNotEmpty()
     petId: string;
@@ -74,6 +96,10 @@ export class CreateMedicalRecordDto {
     @IsNumber()
     @IsOptional()
     temperature?: number;
+
+    @IsBoolean()
+    @IsOptional()
+    isSurgery?: boolean;
 
     @IsString()
     @IsOptional()
@@ -127,9 +153,19 @@ export class CreateMedicalRecordDto {
     @Type(() => CreateLabTestDto)
     @IsOptional()
     labTests?: CreateLabTestDto[];
+
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => CreatePendingConsentDto)
+    @IsOptional()
+    pendingConsents?: CreatePendingConsentDto[];
 }
 
 export class CreateInvoiceItemDto {
+    @IsString()
+    @IsOptional()
+    id?: string;
+
     @IsString()
     @IsOptional()
     productId?: string;
@@ -178,4 +214,8 @@ export class CreateVisitDto {
     @IsString()
     @IsOptional()
     paymentMethod?: string; // e.g. 'CASH', 'TRANSFER'
+
+    @IsString()
+    @IsOptional()
+    status?: 'DRAFT' | 'COMPLETED';
 }

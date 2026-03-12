@@ -157,7 +157,7 @@ export class TenantsService {
         }
         return this.prisma.tenant.delete({ where: { id } });
     }
-    async updateBranding(tenantId: string, data: { brandColor?: string; logoUrl?: string }) {
+    async updateBranding(tenantId: string, data: { brandColor?: string; brandColorDark?: string; logoUrl?: string }) {
         const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
         if (!tenant) {
             throw new NotFoundException('Clinic not found');
@@ -166,6 +166,7 @@ export class TenantsService {
             where: { id: tenantId },
             data: {
                 brandColor: data.brandColor,
+                brandColorDark: data.brandColorDark,
                 logoUrl: data.logoUrl,
             },
         });

@@ -129,6 +129,10 @@ async function main() {
     const brandingMenu = await prisma.menu.create({
         data: { name: 'ตั้งค่าแบรนดิ้ง', path: '/dashboard/settings/branding', icon: 'Palette', sortOrder: 12 },
     });
+    
+    const consentTemplateMenu = await prisma.menu.create({
+        data: { name: 'จัดการฟอร์มใบยินยอม', path: '/dashboard/admin/consent', icon: 'FileText', sortOrder: 13 },
+    });
 
     console.log('✅ Menus created');
 
@@ -140,7 +144,8 @@ async function main() {
         roleMgmtMenu,
         menuMgmtMenu,
         masterDataMenu,
-        clinicApprovalMenu
+        clinicApprovalMenu,
+        consentTemplateMenu
     ];
     for (const menu of saasAdminMenus) {
         await prisma.roleMenu.create({

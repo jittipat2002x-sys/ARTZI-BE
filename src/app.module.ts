@@ -22,6 +22,7 @@ import { WardsModule } from './wards/wards.module';
 import { AdmissionsModule } from './admissions/admissions.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ReportsModule } from './reports/reports.module';
+import { ConsentFormsModule } from './consent-forms/consent-forms.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { ReportsModule } from './reports/reports.module';
     AdmissionsModule,
     DashboardModule,
     ReportsModule,
+    ConsentFormsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -33,6 +33,7 @@ model Tenant {
   
   // Branding
   brandColor    String?        // สีหลักของคลินิก เช่น #FF6B35
+  brandColorDark String?       // สีหลักในโหมดมืด (Dark Mode)
   logoUrl       String?        // Logo คลินิก (base64 data URI)
   
   // Package Subscription
@@ -46,6 +47,7 @@ model Tenant {
   users         User[]         // คลินิกนี้มีพนักงานกี่คนรวมทุกสาขา
   customers     Customer[]     // ลูกค้าเป็นของกิจการ (ไปได้ทุกสาขา)
   pets          Pet[]          // สัตว์เลี้ยงเป็นของกิจการ
+  consentTemplates ConsentTemplate[]
   
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -236,6 +238,7 @@ model Pet {
   appointments   Appointment[]
   vaccines       VaccineRecord[]
   admissions     Admission[]
+  signedConsentForms SignedConsentForm[]
 
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -303,6 +306,7 @@ model MedicalRecord {
   visitDate     DateTime           @default(now())
   weightAtVisit Float?
   temperature   Float?
+  isSurgery     Boolean            @default(false)
   
   symptoms      String             @db.Text // อาการที่มา
   diagnosis     String             @db.Text // การวินิจฉัยโรค
@@ -315,6 +319,7 @@ model MedicalRecord {
   labTests      LabTest[]
   invoiceItems  InvoiceItem[]
   admission     Admission?
+  signedConsentForms SignedConsentForm[]
   
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
@@ -345,9 +350,15 @@ model Visit {
   
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+  status        VisitStatus     @default(COMPLETED)
 
   @@index([branchId])
   @@index([customerId])
+}
+
+enum VisitStatus {
+  DRAFT
+  COMPLETED
 }
 
 // ============================================
@@ -447,6 +458,8 @@ model Inventory {
   
   masterMedicineCategoryId String?
   masterMedicineCategory   MasterMedicineCategory? @relation(fields: [masterMedicineCategoryId], references: [id])
+  
+  requiresConsent    Boolean            @default(false)
 
   description    String?
   price          Float              // ราคาขาย
@@ -511,6 +524,8 @@ model MedicalTreatment {
   
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+  
+  requiresConsent Boolean       @default(false)
   
   @@index([medicalRecordId])
   @@index([inventoryId])
@@ -741,4 +756,46 @@ model LabTestFile {
   createdAt   DateTime @default(now())
 
   @@index([labTestId])
+}
+
+// ============================================
+// 📄 14. ระบบใบยินยอม (Consent Forms)
+// ============================================
+
+model ConsentTemplate {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  
+  name        String   // e.g., "Surgery Consent Form"
+  content     String   @db.Text // HTML or Markdown content with placeholders
+  isActive    Boolean  @default(true)
+  
+  signedForms SignedConsentForm[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model SignedConsentForm {
+  id                String       @id @default(uuid())
+  templateId        String
+  template          ConsentTemplate @relation(fields: [templateId], references: [id])
+  
+  petId             String
+  pet               Pet          @relation(fields: [petId], references: [id])
+  
+  medicalRecordId   String?
+  medicalRecord     MedicalRecord? @relation(fields: [medicalRecordId], references: [id])
+  
+  signedBy          String       // Name of the person who signed
+  signatureUrl      String       // URL/Object key in MinIO for the signature image
+  contentSnapshot   String       @db.Text // The actual text at the time of signing
+  
+  createdAt         DateTime     @default(now())
+
+  @@index([templateId])
+  @@index([petId])
 }

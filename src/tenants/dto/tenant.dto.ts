@@ -65,6 +65,11 @@ export class UpdateBrandingDto {
     @IsOptional()
     brandColor?: string;
 
+    @ApiProperty({ required: false, description: 'สีหลักในโหมดมืด (Dark Mode)' })
+    @IsString()
+    @IsOptional()
+    brandColorDark?: string;
+
     @ApiProperty({ required: false, description: 'Logo คลินิก (base64 data URI)' })
     @IsString()
     @IsOptional()

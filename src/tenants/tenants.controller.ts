@@ -40,7 +40,11 @@ export class TenantsController {
     async getMyBranding(@Request() req: any) {
         if (!req.user.tenantId) throw new ForbiddenException('Only clinic users can access branding');
         const tenant = await this.tenantsService.findOne(req.user.tenantId);
-        return { brandColor: tenant.brandColor, logoUrl: tenant.logoUrl };
+        return { 
+            brandColor: tenant.brandColor, 
+            brandColorDark: tenant.brandColorDark,
+            logoUrl: tenant.logoUrl 
+        };
     }
 
     @ApiOperation({ summary: 'Update clinic branding (color + logo)' })
